@@ -33,10 +33,10 @@ impl fmt::Display for Coodinate {
 }
 
 pub const COODINATES: [(Pref, Coodinate); 4] = [
-    (Osaka, Coodinate(34.686297, 135.519661)),
-    (Hyogo, Coodinate(34.691269, 135.183071)),
-    (Nara, Coodinate(34.685334, 135.832742)),
-    (Kyoto, Coodinate(35.021247, 135.755597)),
+    (Osaka, Coodinate(34.686_3, 135.519_67)),
+    (Hyogo, Coodinate(34.691_27, 135.183_07)),
+    (Nara, Coodinate(34.685_334, 135.832_75)),
+    (Kyoto, Coodinate(35.021_247, 135.755_6)),
 ];
 
 pub const VERSION_MAP: [(&str, Version); 4] = [

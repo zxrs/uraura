@@ -1,17 +1,16 @@
 use anyhow::{ensure, Context, Result};
 use base64::{engine::general_purpose, Engine as _};
 use rand::prelude::*;
-use std::{collections::HashMap, env, fmt, process::Command, sync::mpsc, thread};
+use std::{collections::HashMap, env, fmt, sync::Arc};
+use tokio::sync::Semaphore;
 use xml::reader::{EventReader, XmlEvent};
 
 mod consts;
 use consts::{Coodinate, Pref, COODINATES, FULLKEY_B64, VERSION_MAP};
 
-fn token() -> Result<(Pref, String)> {
+async fn token() -> Result<(Pref, String)> {
     let info = random_info();
-    let auth1 = reqwest::blocking::ClientBuilder::new()
-        .cookie_store(true)
-        .build()?;
+    let auth1 = reqwest::ClientBuilder::new().cookie_store(true).build()?;
     let useragent = info.useragent.to_string();
     let res = auth1
         .get("https://radiko.jp/v2/api/auth1")
@@ -20,7 +19,8 @@ fn token() -> Result<(Pref, String)> {
         .header("X-Radiko-App-Version", "7.5.0")
         .header("X-Radiko-Device", info.device.as_str())
         .header("X-Radiko-User", info.userid.as_str())
-        .send()?;
+        .send()
+        .await?;
 
     let headers = res.headers();
 
@@ -44,9 +44,7 @@ fn token() -> Result<(Pref, String)> {
     let partial = general_purpose::STANDARD.encode(decoded);
 
     let (pref, coodinate) = gps();
-    let auth2 = reqwest::blocking::ClientBuilder::new()
-        .cookie_store(true)
-        .build()?;
+    let auth2 = reqwest::ClientBuilder::new().cookie_store(true).build()?;
     let _res = auth2
         .get("https://radiko.jp/v2/api/auth2")
         .header("User-Agent", useragent)
@@ -58,7 +56,8 @@ fn token() -> Result<(Pref, String)> {
         .header("X-Radiko-Location", coodinate.to_string())
         .header("X-Radiko-Connection", "wifi")
         .header("X-Radiko-Partialkey", partial)
-        .send()?;
+        .send()
+        .await?;
     Ok((pref, token.into()))
 }
 
@@ -121,12 +120,11 @@ fn random_info() -> Info {
     let userid = UserId::new();
     let useragent = UserAgent::new();
     let sdk = useragent.sdk;
-    let info = Info {
+    Info {
         userid,
         useragent,
         device: format!("{sdk}.SC-02H"),
-    };
-    info
+    }
 }
 
 fn gps() -> (Pref, Coodinate) {
@@ -150,12 +148,12 @@ fn parse_aac(data: &[u8]) -> (u32, u32) {
     (id3_tag_size, timestamp)
 }
 
-fn download(
-    req: &reqwest::blocking::Client,
-    pref: &Pref,
-    token: &str,
-    ft: &str,
-    to: &str,
+async fn download(
+    req: Arc<reqwest::Client>,
+    pref: Pref,
+    token: String,
+    ft: String,
+    to: String,
 ) -> Result<Vec<u8>> {
     let res = req
         .get(format!(
@@ -163,19 +161,19 @@ fn download(
         ))
         .header("X-Radiko-AreaId", pref.as_id())
         .header("X-Radiko-AuthToken", token)
-        .send()?;
+        .send()
+        .await?;
 
-    let res = res.text()?;
+    let res = res.text().await?;
     let data_link = res
         .split('\n')
-        .filter(|d| !d.starts_with('#') && !d.trim().is_empty())
-        .next()
+        .find(|d| !d.starts_with('#') && !d.trim().is_empty())
         .context("no data link.")?;
 
     //dbg!(data_link);
 
-    let res = req.get(data_link).send()?;
-    let res = res.text()?;
+    let res = req.get(data_link).send().await?;
+    let res = res.text().await?;
     let links: Vec<String> = res
         .split('\n')
         .filter_map(|d| {
@@ -187,31 +185,38 @@ fn download(
         })
         .collect();
 
-    let data = links
-        .iter()
-        .filter_map(|link| {
-            let res = req.get(link).send().ok()?;
-            let data = res.bytes().ok()?;
+    let sem = Arc::new(Semaphore::new(16));
+    let mut handles = vec![];
+    for link in links {
+        let permit = sem.clone().acquire_owned().await?;
+        let req = req.clone();
+        handles.push(tokio::spawn(async move {
+            dbg!(&link);
+            let data = req.get(link).send().await.unwrap().bytes().await.unwrap();
             let (offset, _) = parse_aac(&data);
-            Some(data.get(offset as usize..)?.to_vec())
-        })
-        .flatten()
-        .collect();
+            drop(permit);
+            data.get(offset as usize..).unwrap().to_vec()
+        }));
+    }
 
-    Ok(data)
+    let mut buf = vec![];
+    for handle in handles {
+        buf.push(handle.await?);
+    }
+    Ok(buf.into_iter().flatten().collect())
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let yyyymmdd = env::args().nth(1).context("no arg.")?;
     ensure!(
-        yyyymmdd.len() == 8 && yyyymmdd.chars().all(|c| c.is_digit(10)),
+        yyyymmdd.len() == 8 && yyyymmdd.chars().all(|c| c.is_ascii_digit()),
         "invalid arg."
     );
 
-    let (pref, token) = token()?;
-    let req = reqwest::blocking::ClientBuilder::new()
-        .cookie_store(true)
-        .build()?;
+    let (pref, token) = token().await?;
+    let req = reqwest::ClientBuilder::new().cookie_store(true).build()?;
+    let req = Arc::new(req);
 
     let res = req
         .get(format!(
@@ -220,8 +225,9 @@ fn main() -> Result<()> {
         ))
         .header("X-Radiko-AreaId", pref.as_id())
         .header("X-Radiko-AuthToken", &token)
-        .send()?;
-    let xml = res.text()?;
+        .send()
+        .await?;
+    let xml = res.text().await?;
     let parser = EventReader::new(xml.as_bytes());
     let mut programs = vec![];
     let mut ft = String::new();
@@ -231,10 +237,8 @@ fn main() -> Result<()> {
             Ok(XmlEvent::StartElement {
                 name, attributes, ..
             }) => {
-                if name.local_name.eq("station") {
-                    if !attributes.iter().any(|a| a.value.eq("ABC")) {
-                        break;
-                    }
+                if name.local_name.eq("station") && !attributes.iter().any(|a| a.value.eq("ABC")) {
+                    break;
                 }
                 if name.local_name.eq("prog") {
                     for attr in attributes {
@@ -247,47 +251,38 @@ fn main() -> Result<()> {
                     }
                 }
             }
-            Ok(XmlEvent::Characters(s)) if s.starts_with("ウラのウラまで浦川です") => {
+            Ok(XmlEvent::Characters(s))
+                if s.starts_with("ウラのウラまで浦川です")
+                    || s.starts_with("兵動大樹のほわ～っとエエ感じ。") =>
+            {
                 programs.push((ft.clone(), to.clone()));
             }
             _ => (),
         }
     }
 
-    let (tx, rx) = mpsc::sync_channel(programs.len());
-
     let mut file_names = vec![];
     for (i, (ft, to)) in programs.into_iter().enumerate() {
-        let tx = tx.clone();
         let req = req.clone();
         let token = token.clone();
-        let yyyymmdd = yyyymmdd.clone();
+        let data = download(req, pref, token, ft, to).await?;
         let file_name = format!("URAURA_{}_{i}.aac", &yyyymmdd);
         file_names.push(file_name.clone());
-        thread::spawn(move || -> Result<()> {
-            let aac = download(&req, &pref, &token, &ft, &to)?;
-            tx.send((file_name, aac))?;
-            Ok(())
-        });
-    }
-
-    drop(tx);
-
-    while let Ok((file_name, aac)) = rx.recv() {
-        std::fs::write(&file_name, aac)?;
+        tokio::fs::write(file_name, data).await?;
     }
 
     let list_name = format!("URAURA_{}_list.txt", &yyyymmdd);
-    std::fs::write(
+    tokio::fs::write(
         &list_name,
         file_names
             .iter()
             .map(|n| format!("file {n}\n"))
             .collect::<String>()
             .as_bytes(),
-    )?;
+    )
+    .await?;
 
-    Command::new("ffmpeg")
+    tokio::process::Command::new("ffmpeg")
         .arg("-safe")
         .arg("0")
         .arg("-f")
@@ -298,11 +293,10 @@ fn main() -> Result<()> {
         .arg("copy")
         .arg(format!("URAURA_{}.aac", &yyyymmdd))
         .spawn()?
-        .wait()?;
+        .wait()
+        .await?;
 
     std::fs::remove_file(&list_name)?;
-    file_names
-        .iter()
-        .try_for_each(|f| std::fs::remove_file(f))?;
+    file_names.iter().try_for_each(std::fs::remove_file)?;
     Ok(())
 }

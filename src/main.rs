@@ -283,6 +283,9 @@ async fn main() -> Result<()> {
     .await?;
 
     tokio::process::Command::new("ffmpeg")
+        .arg("-hide_banner")
+        .arg("-loglevel")
+        .arg("error")
         .arg("-safe")
         .arg("0")
         .arg("-f")

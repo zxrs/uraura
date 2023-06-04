@@ -2,11 +2,13 @@ use anyhow::{ensure, Context, Result};
 use base64::{engine::general_purpose, Engine as _};
 use rand::prelude::*;
 use std::{collections::HashMap, env, fmt, sync::Arc};
-use tokio::sync::Semaphore;
-use xml::reader::{EventReader, XmlEvent};
+use tokio::{fs, process::Command, sync::Semaphore};
 
 mod consts;
+mod xml;
+
 use consts::{Coodinate, Pref, COODINATES, FULLKEY_B64, VERSION_MAP};
+use xml::*;
 
 async fn token() -> Result<(Pref, String)> {
     let info = random_info();
@@ -228,51 +230,43 @@ async fn main() -> Result<()> {
         .send()
         .await?;
     let xml = res.text().await?;
-    let parser = EventReader::new(xml.as_bytes());
-    let mut programs = vec![];
-    let mut ft = String::new();
-    let mut to = String::new();
-    for e in parser {
-        match e {
-            Ok(XmlEvent::StartElement {
-                name, attributes, ..
-            }) => {
-                if name.local_name.eq("station") && !attributes.iter().any(|a| a.value.eq("ABC")) {
-                    break;
-                }
-                if name.local_name.eq("prog") {
-                    for attr in attributes {
-                        if attr.name.local_name.eq("ft") {
-                            ft.clone_from(&attr.value);
-                        }
-                        if attr.name.local_name.eq("to") {
-                            to.clone_from(&attr.value)
-                        }
-                    }
-                }
+    let radiko: Radiko = serde_xml_rs::from_str(&xml)?;
+    //dbg!(radiko);
+
+    let programs: Vec<_> = radiko
+        .stations
+        .value
+        .iter()
+        .filter(|s| s.id.eq("ABC"))
+        .map(|s| &s.progs.value)
+        .flatten()
+        .filter_map(|p| {
+            if p.title.value.starts_with("ウラのウラまで浦川です") {
+                return Some(("URAURA", &p.ft, &p.to));
+            } else if p.title.value.starts_with("兵動大樹のほわ～っとエエ感じ。") {
+                return Some(("HYODO", &p.ft, &p.to));
             }
-            Ok(XmlEvent::Characters(s))
-                if s.starts_with("ウラのウラまで浦川です")
-                    || s.starts_with("兵動大樹のほわ～っとエエ感じ。") =>
-            {
-                programs.push((ft.clone(), to.clone()));
-            }
-            _ => (),
-        }
-    }
+            None
+        })
+        .inspect(|t| {
+            dbg!(&t);
+        })
+        .collect();
 
     let mut file_names = vec![];
-    for (i, (ft, to)) in programs.into_iter().enumerate() {
+    for (i, (prefix, ft, to)) in programs.iter().enumerate() {
         let req = req.clone();
         let token = token.clone();
-        let data = download(req, pref, token, ft, to).await?;
-        let file_name = format!("URAURA_{}_{i}.aac", &yyyymmdd);
+        let data = download(req, pref, token, ft.to_string(), to.to_string()).await?;
+        let file_name = format!("{prefix}_{}_{i}.aac", &yyyymmdd);
         file_names.push(file_name.clone());
-        tokio::fs::write(file_name, data).await?;
+        fs::write(file_name, data).await?;
     }
 
-    let list_name = format!("URAURA_{}_list.txt", &yyyymmdd);
-    tokio::fs::write(
+    let prefix = programs.iter().next().context("no program.")?.0;
+
+    let list_name = format!("{prefix}_{}_list.txt", &yyyymmdd);
+    fs::write(
         &list_name,
         file_names
             .iter()
@@ -282,7 +276,7 @@ async fn main() -> Result<()> {
     )
     .await?;
 
-    tokio::process::Command::new("ffmpeg")
+    Command::new("ffmpeg")
         .arg("-hide_banner")
         .arg("-loglevel")
         .arg("error")
@@ -294,12 +288,14 @@ async fn main() -> Result<()> {
         .arg(&list_name)
         .arg("-c:a")
         .arg("copy")
-        .arg(format!("URAURA_{}.aac", &yyyymmdd))
+        .arg(format!("{prefix}_{}.aac", &yyyymmdd))
         .spawn()?
         .wait()
         .await?;
 
-    std::fs::remove_file(&list_name)?;
-    file_names.iter().try_for_each(std::fs::remove_file)?;
+    fs::remove_file(&list_name).await?;
+    for file_name in file_names {
+        fs::remove_file(file_name).await?;
+    }
     Ok(())
 }

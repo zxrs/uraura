@@ -15,6 +15,7 @@ const DOWNLOAD_PROGRAMS: &[(&str, &str)] = &[
     ("兵動大樹のほわ～っとエエ感じ。", "HYODO"),
     ("Ｓｕｎｓｔａｒ　ｐｒｅｓｅｎｔｓ　浦川泰幸の健", "KENKO"),
     ("征平・吉弥の土曜も全開！！", "ZENKAI"),
+    ("日曜落語～なみはや亭～", "NAMIHAYA"),
 ];
 
 async fn token() -> Result<(Pref, String)> {
@@ -215,12 +216,44 @@ async fn download(
     Ok(buf.into_iter().flatten().collect())
 }
 
+async fn yyyymmdd() -> Result<String> {
+    let output = String::from_utf8(Command::new("timedatectl").output().await?.stdout)?;
+    let result: String = output
+        .split("\n")
+        .filter(|line| line.contains("Local time:"))
+        .next()
+        .context("no local time.")?
+        .split(" ")
+        .filter_map(|t| {
+            let mut s = t.split("-");
+            let year = s.next()?.parse::<u16>().ok()?;
+            if year < 2023 {
+                return None;
+            }
+            let month = s.next()?.parse::<u8>().ok()?;
+            if month > 12 {
+                return None;
+            }
+            let day = s.next()?.parse::<u8>().ok()?;
+            if day > 31 {
+                return None;
+            }
+            Some(format!("{year}{:02}{:02}", month, day))
+        })
+        .collect();
+    ensure!(!result.is_empty(), "no yyyymmdd.");
+    Ok(result)
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    let yyyymmdd = env::args().nth(1).context("no arg.")?;
+    let yyyymmdd = match env::args().nth(1) {
+        Some(v) => v,
+        None => yyyymmdd().await?,
+    };
     ensure!(
         yyyymmdd.len() == 8 && yyyymmdd.chars().all(|c| c.is_ascii_digit()),
-        "invalid arg."
+        "invalid date."
     );
 
     let (pref, token) = token().await?;

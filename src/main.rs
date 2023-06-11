@@ -10,6 +10,13 @@ mod xml;
 use consts::{Coodinate, Pref, COODINATES, FULLKEY_B64, VERSION_MAP};
 use xml::*;
 
+const DOWNLOAD_PROGRAMS: &[(&str, &str)] = &[
+    ("ウラのウラまで浦川です", "URAURA"),
+    ("兵動大樹のほわ～っとエエ感じ。", "HYODO"),
+    ("Ｓｕｎｓｔａｒ　ｐｒｅｓｅｎｔｓ　浦川泰幸の健", "KENKO"),
+    ("征平・吉弥の土曜も全開！！", "ZENKAI"),
+];
+
 async fn token() -> Result<(Pref, String)> {
     let info = random_info();
     let auth1 = reqwest::ClientBuilder::new().cookie_store(true).build()?;
@@ -233,69 +240,84 @@ async fn main() -> Result<()> {
     let radiko: Radiko = serde_xml_rs::from_str(&xml)?;
     //dbg!(radiko);
 
-    let programs: Vec<_> = radiko
+    let programs: Vec<Vec<_>> = radiko
         .stations
         .value
         .iter()
         .filter(|s| s.id.eq("ABC"))
         .map(|s| &s.progs.value)
-        .flatten()
-        .filter_map(|p| {
-            if p.title.value.starts_with("ウラのウラまで浦川です") {
-                return Some(("URAURA", &p.ft, &p.to));
-            } else if p.title.value.starts_with("兵動大樹のほわ～っとエエ感じ。") {
-                return Some(("HYODO", &p.ft, &p.to));
-            }
-            None
+        .map(|programs| {
+            DOWNLOAD_PROGRAMS
+                .iter()
+                .filter_map(|d| {
+                    if programs.iter().any(|p| p.title.value.starts_with(d.0)) {
+                        return Some((
+                            d.1,
+                            programs
+                                .iter()
+                                .filter_map(|p| {
+                                    if p.title.value.starts_with(d.0) {
+                                        return Some((p.ft.clone(), p.to.clone()));
+                                    }
+                                    None
+                                })
+                                .collect::<Vec<_>>(),
+                        ));
+                    }
+                    None
+                })
+                .collect()
         })
         .inspect(|t| {
             dbg!(&t);
         })
         .collect();
 
-    let mut file_names = vec![];
-    for (i, (prefix, ft, to)) in programs.iter().enumerate() {
-        let req = req.clone();
-        let token = token.clone();
-        let data = download(req, pref, token, ft.to_string(), to.to_string()).await?;
-        let file_name = format!("{prefix}_{}_{i}.aac", &yyyymmdd);
-        file_names.push(file_name.clone());
-        fs::write(file_name, data).await?;
-    }
+    for program in programs.iter() {
+        for (prefix, times) in program.iter() {
+            let mut file_names = vec![];
+            for (i, (ft, to)) in times.iter().enumerate() {
+                let req = req.clone();
+                let token = token.clone();
+                let data = download(req, pref, token, ft.to_string(), to.to_string()).await?;
+                let file_name = format!("{prefix}_{}_{i}.aac", &yyyymmdd);
+                file_names.push(file_name.clone());
+                fs::write(file_name, data).await?;
+            }
 
-    let prefix = programs.iter().next().context("no program.")?.0;
+            let list_name = format!("{prefix}_{}_list.txt", &yyyymmdd);
+            fs::write(
+                &list_name,
+                file_names
+                    .iter()
+                    .map(|n| format!("file {n}\n"))
+                    .collect::<String>()
+                    .as_bytes(),
+            )
+            .await?;
 
-    let list_name = format!("{prefix}_{}_list.txt", &yyyymmdd);
-    fs::write(
-        &list_name,
-        file_names
-            .iter()
-            .map(|n| format!("file {n}\n"))
-            .collect::<String>()
-            .as_bytes(),
-    )
-    .await?;
+            Command::new("ffmpeg")
+                .arg("-hide_banner")
+                .arg("-loglevel")
+                .arg("error")
+                .arg("-safe")
+                .arg("0")
+                .arg("-f")
+                .arg("concat")
+                .arg("-i")
+                .arg(&list_name)
+                .arg("-c:a")
+                .arg("copy")
+                .arg(format!("{prefix}_{}.aac", &yyyymmdd))
+                .spawn()?
+                .wait()
+                .await?;
 
-    Command::new("ffmpeg")
-        .arg("-hide_banner")
-        .arg("-loglevel")
-        .arg("error")
-        .arg("-safe")
-        .arg("0")
-        .arg("-f")
-        .arg("concat")
-        .arg("-i")
-        .arg(&list_name)
-        .arg("-c:a")
-        .arg("copy")
-        .arg(format!("{prefix}_{}.aac", &yyyymmdd))
-        .spawn()?
-        .wait()
-        .await?;
-
-    fs::remove_file(&list_name).await?;
-    for file_name in file_names {
-        fs::remove_file(file_name).await?;
+            fs::remove_file(&list_name).await?;
+            for file_name in file_names {
+                fs::remove_file(file_name).await?;
+            }
+        }
     }
     Ok(())
 }

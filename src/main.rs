@@ -219,13 +219,12 @@ async fn download(
 async fn yyyymmdd() -> Result<String> {
     let output = String::from_utf8(Command::new("timedatectl").output().await?.stdout)?;
     let result: String = output
-        .split("\n")
-        .filter(|line| line.contains("Local time:"))
-        .next()
+        .split('\n')
+        .find(|line| line.contains("Local time:"))
         .context("no local time.")?
-        .split(" ")
+        .split(' ')
         .filter_map(|t| {
-            let mut s = t.split("-");
+            let mut s = t.split('-');
             let year = s.next()?.parse::<u16>().ok()?;
             if year < 2023 {
                 return None;

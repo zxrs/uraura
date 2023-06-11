@@ -217,6 +217,13 @@ async fn download(
 }
 
 async fn yyyymmdd() -> Result<String> {
+    if let Some(v) = env::args().nth(1) {
+        ensure!(
+            v.len() == 8 && v.chars().all(|c| c.is_ascii_digit()),
+            "invalid date."
+        );
+        return Ok(v);
+    }
     let output = String::from_utf8(Command::new("timedatectl").output().await?.stdout)?;
     let result: String = output
         .split('\n')
@@ -246,14 +253,7 @@ async fn yyyymmdd() -> Result<String> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let yyyymmdd = match env::args().nth(1) {
-        Some(v) => v,
-        None => yyyymmdd().await?,
-    };
-    ensure!(
-        yyyymmdd.len() == 8 && yyyymmdd.chars().all(|c| c.is_ascii_digit()),
-        "invalid date."
-    );
+    let yyyymmdd = yyyymmdd().await?;
 
     let (pref, token) = token().await?;
     let req = reqwest::ClientBuilder::new().cookie_store(true).build()?;

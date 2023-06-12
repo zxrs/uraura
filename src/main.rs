@@ -251,6 +251,11 @@ async fn yyyymmdd() -> Result<String> {
     Ok(result)
 }
 
+async fn user() -> Result<String> {
+    let user = Command::new("whoami").output().await?.stdout;
+    Ok(String::from_utf8(user)?.split_whitespace().collect())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let yyyymmdd = yyyymmdd().await?;
@@ -305,6 +310,7 @@ async fn main() -> Result<()> {
         })
         .collect();
 
+    let user = user().await?;
     for program in programs.iter() {
         for (prefix, times) in program.iter() {
             let mut file_names = vec![];
@@ -312,12 +318,12 @@ async fn main() -> Result<()> {
                 let req = req.clone();
                 let token = token.clone();
                 let data = download(req, pref, token, ft.to_string(), to.to_string()).await?;
-                let file_name = format!("/home/dev/Downloads/{prefix}_{}_{i}.aac", &yyyymmdd);
+                let file_name = format!("/home/{}/Downloads/{prefix}_{}_{i}.aac", &user, &yyyymmdd);
                 file_names.push(file_name.clone());
                 fs::write(file_name, data).await?;
             }
 
-            let list_name = format!("/home/dev/Downloads/{prefix}_{}_list.txt", &yyyymmdd);
+            let list_name = format!("/home/{}/Downloads/{prefix}_{}_list.txt", &user, &yyyymmdd);
             fs::write(
                 &list_name,
                 file_names
@@ -340,7 +346,10 @@ async fn main() -> Result<()> {
                 .arg(&list_name)
                 .arg("-c:a")
                 .arg("copy")
-                .arg(format!("/home/dev/Downloads/{prefix}_{}.aac", &yyyymmdd))
+                .arg(format!(
+                    "/home/{}/Downloads/{prefix}_{}.aac",
+                    &user, &yyyymmdd
+                ))
                 .spawn()?
                 .wait()
                 .await?;

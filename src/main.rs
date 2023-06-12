@@ -312,12 +312,12 @@ async fn main() -> Result<()> {
                 let req = req.clone();
                 let token = token.clone();
                 let data = download(req, pref, token, ft.to_string(), to.to_string()).await?;
-                let file_name = format!("{prefix}_{}_{i}.aac", &yyyymmdd);
+                let file_name = format!("/home/dev/Downloads/{prefix}_{}_{i}.aac", &yyyymmdd);
                 file_names.push(file_name.clone());
                 fs::write(file_name, data).await?;
             }
 
-            let list_name = format!("{prefix}_{}_list.txt", &yyyymmdd);
+            let list_name = format!("/home/dev/Downloads/{prefix}_{}_list.txt", &yyyymmdd);
             fs::write(
                 &list_name,
                 file_names
@@ -340,7 +340,7 @@ async fn main() -> Result<()> {
                 .arg(&list_name)
                 .arg("-c:a")
                 .arg("copy")
-                .arg(format!("{prefix}_{}.aac", &yyyymmdd))
+                .arg(format!("/home/dev/Downloads/{prefix}_{}.aac", &yyyymmdd))
                 .spawn()?
                 .wait()
                 .await?;

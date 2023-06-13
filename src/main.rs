@@ -259,6 +259,17 @@ async fn user() -> Result<String> {
 #[tokio::main]
 async fn main() -> Result<()> {
     let yyyymmdd = yyyymmdd().await?;
+    let user = user().await?;
+    let download_programs: Vec<_> = DOWNLOAD_PROGRAMS
+        .iter()
+        .filter(|(_, prefix)| {
+            !std::path::Path::new(&format!(
+                "/home/{}/Downloads/{}_{}.aac",
+                &user, prefix, &yyyymmdd
+            ))
+            .exists()
+        })
+        .collect();
 
     let (pref, token) = token().await?;
     let req = reqwest::ClientBuilder::new().cookie_store(true).build()?;
@@ -284,7 +295,7 @@ async fn main() -> Result<()> {
         .filter(|s| s.id.eq("ABC"))
         .map(|s| &s.progs.value)
         .map(|programs| {
-            DOWNLOAD_PROGRAMS
+            download_programs
                 .iter()
                 .filter_map(|d| {
                     if programs.iter().any(|p| p.title.value.starts_with(d.0)) {
@@ -310,7 +321,6 @@ async fn main() -> Result<()> {
         })
         .collect();
 
-    let user = user().await?;
     for program in programs.iter() {
         for (prefix, times) in program.iter() {
             let mut file_names = vec![];

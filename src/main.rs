@@ -1,7 +1,7 @@
 use anyhow::{ensure, Context, Result};
 use base64::{engine::general_purpose, Engine as _};
 use rand::prelude::*;
-use std::{collections::HashMap, env, fmt, sync::Arc};
+use std::{collections::HashMap, env, fmt, io::Write, sync::Arc};
 use tokio::{fs, process::Command, sync::Semaphore};
 
 mod consts;
@@ -336,11 +336,12 @@ async fn main() -> Result<()> {
             let list_name = format!("/home/{}/Downloads/{prefix}_{}_list.txt", &user, &yyyymmdd);
             fs::write(
                 &list_name,
-                file_names
+                &file_names
                     .iter()
-                    .map(|n| format!("file {n}\n"))
-                    .collect::<String>()
-                    .as_bytes(),
+                    .try_fold(vec![], |mut acc, n| -> Result<_> {
+                        writeln!(&mut acc, "file {n}")?;
+                        Ok(acc)
+                    })?,
             )
             .await?;
 

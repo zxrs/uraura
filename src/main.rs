@@ -227,8 +227,9 @@ async fn yyyymmdd() -> Result<String> {
         return Ok(v);
     }
     let result = String::from_utf8(Command::new("date").arg("+%Y%m%d").output().await?.stdout)?;
+    let result = result.trim();
     ensure!(!result.is_empty(), "no yyyymmdd.");
-    Ok(result)
+    Ok(result.into())
 }
 
 async fn user() -> Result<String> {

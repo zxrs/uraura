@@ -16,6 +16,8 @@ const DOWNLOAD_PROGRAMS: &[(&str, &str)] = &[
     ("Ｓｕｎｓｔａｒ　ｐｒｅｓｅｎｔｓ　浦川泰幸の健", "KENKO"),
     ("征平・吉弥の土曜も全開！！", "ZENKAI"),
     ("日曜落語～なみはや亭～", "NAMIHAYA"),
+    ("Ｒ→９３３", "R933"),
+    ("宇野さんと小川さん。", "UO"),
 ];
 
 async fn token() -> Result<(Pref, String)> {
@@ -224,29 +226,7 @@ async fn yyyymmdd() -> Result<String> {
         );
         return Ok(v);
     }
-    let output = String::from_utf8(Command::new("timedatectl").output().await?.stdout)?;
-    let result: String = output
-        .split('\n')
-        .find(|line| line.contains("Local time:"))
-        .context("no local time.")?
-        .split(' ')
-        .filter_map(|t| {
-            let mut s = t.split('-');
-            let year = s.next()?.parse::<u16>().ok()?;
-            if year < 2023 {
-                return None;
-            }
-            let month = s.next()?.parse::<u8>().ok()?;
-            if month > 12 {
-                return None;
-            }
-            let day = s.next()?.parse::<u8>().ok()?;
-            if day > 31 {
-                return None;
-            }
-            Some(format!("{year}{:02}{:02}", month, day))
-        })
-        .collect();
+    let result = String::from_utf8(Command::new("date").arg("+%Y%m%d").output().await?.stdout)?;
     ensure!(!result.is_empty(), "no yyyymmdd.");
     Ok(result)
 }

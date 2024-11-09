@@ -11,12 +11,19 @@ use consts::{Coodinate, Pref, COODINATES, FULLKEY_B64, VERSION_MAP};
 use xml::*;
 
 const DOWNLOAD_PROGRAMS: &[(&str, &str)] = &[
+    // MON~THR 15:00~
     ("ウラのウラまで浦川です", "URAURA"),
+    // FRI 12:00~
     ("兵動大樹のほわ～っとエエ感じ。", "HYODO"),
+    // SAT 9:30~
     ("Ｓｕｎｓｔａｒ　ｐｒｅｓｅｎｔｓ　浦川泰幸の健", "KENKO"),
+    // SAT 10:00~
     ("征平・吉弥の土曜も全開！！", "ZENKAI"),
-    ("日曜落語～なみはや亭～", "NAMIHAYA"),
+    // SAT 12:30~
     ("宇野さんと小川さん。", "UO"),
+    // SUN 8:30~
+    ("日曜落語～なみはや亭～", "NAMIHAYA"),
+    // MON~SAT 2:00~
     ("Ｒ→９３３", "R933"),
 ];
 

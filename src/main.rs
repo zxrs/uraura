@@ -16,8 +16,8 @@ const DOWNLOAD_PROGRAMS: &[(&str, &str)] = &[
     ("Ｓｕｎｓｔａｒ　ｐｒｅｓｅｎｔｓ　浦川泰幸の健", "KENKO"),
     ("征平・吉弥の土曜も全開！！", "ZENKAI"),
     ("日曜落語～なみはや亭～", "NAMIHAYA"),
-    ("Ｒ→９３３", "R933"),
     ("宇野さんと小川さん。", "UO"),
+    ("Ｒ→９３３", "R933"),
 ];
 
 async fn token() -> Result<(Pref, String)> {

@@ -1,5 +1,5 @@
-use anyhow::{ensure, Context, Result};
-use base64::{engine::general_purpose, Engine as _};
+use anyhow::{Context, Result, ensure};
+use base64::{Engine as _, engine::general_purpose};
 use rand::prelude::*;
 use std::{collections::HashMap, env, fmt, io::Write, sync::Arc};
 use tokio::{fs, process::Command, sync::Semaphore};
@@ -7,7 +7,7 @@ use tokio::{fs, process::Command, sync::Semaphore};
 mod consts;
 mod xml;
 
-use consts::{Coodinate, Pref, COODINATES, FULLKEY_B64, VERSION_MAP};
+use consts::{COODINATES, Coodinate, FULLKEY_B64, Pref, VERSION_MAP};
 use xml::*;
 
 const DOWNLOAD_PROGRAMS: &[(&str, &str)] = &[
@@ -19,10 +19,10 @@ const DOWNLOAD_PROGRAMS: &[(&str, &str)] = &[
     ("Ｓｕｎｓｔａｒ　ｐｒｅｓｅｎｔｓ　浦川泰幸の健", "KENKO"),
     // SAT 10:00~
     ("征平・吉弥の土曜も全開！！", "ZENKAI"),
-    // SAT 12:30~
-    ("宇野さんと小川さん。", "UO"),
     // SUN 8:30~
     ("日曜落語～なみはや亭～", "NAMIHAYA"),
+    // SUN 9:00~
+    ("宇野さんと小川さん。", "UO"),
     // MON~SAT 2:00~
     ("Ｒ→９３３", "R933"),
 ];
@@ -93,8 +93,10 @@ impl UserId {
         let hex = [
             '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f',
         ];
-        let mut rng = rand::thread_rng();
-        let id = (0..32).map(|_| hex[rng.gen_range(0..hex.len())]).collect();
+        let mut rng = rand::rng();
+        let id = (0..32)
+            .map(|_| hex[rng.random_range(0..hex.len())])
+            .collect();
         Self(id)
     }
 
@@ -112,11 +114,11 @@ struct UserAgent {
 impl UserAgent {
     fn new() -> Self {
         let version_map = HashMap::from(VERSION_MAP);
-        let mut rng = rand::thread_rng();
-        let version = VERSION_MAP[rng.gen_range(0..VERSION_MAP.len())].0;
+        let mut rng = rand::rng();
+        let version = VERSION_MAP[rng.random_range(0..VERSION_MAP.len())].0;
         let sdk = version_map.get(version).unwrap().sdk;
         let builds = version_map.get(version).unwrap().builds;
-        let build = builds[rng.gen_range(0..builds.len())];
+        let build = builds[rng.random_range(0..builds.len())];
         Self {
             version,
             build,
@@ -147,10 +149,10 @@ fn random_info() -> Info {
 }
 
 fn gps() -> (Pref, Coodinate) {
-    let mut rng = rand::thread_rng();
-    let (pref, latlong) = &COODINATES[rng.gen_range(0..COODINATES.len())];
-    let lat = latlong.0 + rng.gen_range(-0.025..0.025);
-    let long = latlong.1 + rng.gen_range(-0.025..0.025);
+    let mut rng = rand::rng();
+    let (pref, latlong) = &COODINATES[rng.random_range(0..COODINATES.len())];
+    let lat = latlong.0 + rng.random_range(-0.025..0.025);
+    let long = latlong.1 + rng.random_range(-0.025..0.025);
     (pref.to_owned(), Coodinate(lat, long))
 }
 

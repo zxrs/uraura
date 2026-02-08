@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, PartialEq)]
 pub struct Radiko {
@@ -67,4 +67,18 @@ pub struct Prog_ {
 pub struct Title {
     #[serde(rename = "$value")]
     pub value: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Urls {
+    #[serde(rename = "$value")]
+    pub value: Vec<Url>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Url {
+    pub areafree: String,
+    pub max_delay: String,
+    pub timefree: String,
+    pub playlist_create_url: String,
 }

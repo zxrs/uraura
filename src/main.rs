@@ -1,8 +1,14 @@
 use anyhow::{Context, Result, ensure};
 use base64::{Engine as _, engine::general_purpose};
+use chrono::{DateTime, Local, TimeDelta, TimeZone};
 use rand::prelude::*;
-use std::{collections::HashMap, env, fmt, io::Write, sync::Arc};
-use tokio::{fs, process::Command, sync::Semaphore};
+use std::{
+    collections::HashMap,
+    env, fmt,
+    io::{Read, Write},
+    sync::Arc,
+};
+use tokio::{fs, process::Command};
 
 mod consts;
 mod xml;
@@ -169,64 +175,6 @@ fn parse_aac(data: &[u8]) -> (u32, u32) {
     (id3_tag_size, timestamp)
 }
 
-async fn download(
-    req: Arc<reqwest::Client>,
-    pref: Pref,
-    token: String,
-    ft: String,
-    to: String,
-) -> Result<Vec<u8>> {
-    let res = req
-        .get(format!(
-            "https://radiko.jp/v2/api/ts/playlist.m3u8?station_id=ABC&ft={ft}&to={to}"
-        ))
-        .header("X-Radiko-AreaId", pref.as_id())
-        .header("X-Radiko-AuthToken", token)
-        .send()
-        .await?;
-
-    let res = res.text().await?;
-    let data_link = res
-        .split('\n')
-        .find(|d| !d.starts_with('#') && !d.trim().is_empty())
-        .context("no data link.")?;
-
-    //dbg!(data_link);
-
-    let res = req.get(data_link).send().await?;
-    let res = res.text().await?;
-    let links: Vec<String> = res
-        .split('\n')
-        .filter_map(|d| {
-            if !d.starts_with('#') && !d.trim().is_empty() {
-                Some(d.to_string())
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    let sem = Arc::new(Semaphore::new(16));
-    let mut handles = vec![];
-    for link in links {
-        let permit = sem.clone().acquire_owned().await?;
-        let req = req.clone();
-        handles.push(tokio::spawn(async move {
-            dbg!(&link);
-            let data = req.get(link).send().await.unwrap().bytes().await.unwrap();
-            let (offset, _) = parse_aac(&data);
-            drop(permit);
-            data.get(offset as usize..).unwrap().to_vec()
-        }));
-    }
-
-    let mut buf = vec![];
-    for handle in handles {
-        buf.push(handle.await?);
-    }
-    Ok(buf.into_iter().flatten().collect())
-}
-
 async fn yyyymmdd() -> Result<String> {
     if let Some(v) = env::args().nth(1) {
         ensure!(
@@ -244,6 +192,46 @@ async fn yyyymmdd() -> Result<String> {
 async fn user() -> Result<String> {
     let user = Command::new("whoami").output().await?.stdout;
     Ok(String::from_utf8(user)?.split_whitespace().collect())
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+struct Time(DateTime<Local>);
+
+impl Time {
+    fn new(time: DateTime<Local>) -> Self {
+        Self(time)
+    }
+
+    fn add_sec(self, sec: i64) -> Result<Self> {
+        Ok(Self::new(
+            self.0
+                .checked_add_signed(TimeDelta::seconds(sec))
+                .context("no time")?,
+        ))
+    }
+}
+
+impl fmt::Display for Time {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0.format("%Y%m%d%H%M%S"))
+    }
+}
+
+impl TryFrom<&str> for Time {
+    type Error = anyhow::Error;
+    fn try_from(value: &str) -> std::result::Result<Self, Self::Error> {
+        let year = value.get(0..4).context("no year")?.parse()?;
+        let month = value.get(4..6).context("no month")?.parse()?;
+        let day = value.get(6..8).context("no day")?.parse()?;
+        let hour = value.get(8..10).context("no hour")?.parse()?;
+        let min = value.get(10..12).context("no min")?.parse()?;
+        let sec = value.get(12..14).context("no sec")?.parse()?;
+        let date_time = Local
+            .with_ymd_and_hms(year, month, day, hour, min, sec)
+            .single()
+            .context("no local time")?;
+        Ok(Time::new(date_time))
+    }
 }
 
 #[tokio::main]
@@ -311,54 +299,88 @@ async fn main() -> Result<()> {
         })
         .collect();
 
+    //dbg!(programs);
+
+    let res = req
+        .get("https://radiko.jp/v3/station/stream/pc_html5/ABC.xml")
+        .send()
+        .await?;
+    let xml = res.text().await?;
+    let urls: Urls = serde_xml_rs::from_str(&xml)?;
+    let playlist_url = urls
+        .value
+        .iter()
+        .filter(|url| url.areafree.eq("0") && url.timefree.eq("1"))
+        .map(|url| url.playlist_create_url.as_str())
+        // .inspect(|v| println!("{v}"))
+        .next()
+        .unwrap_or("https://tf-f-rpaa-radiko.smartstream.ne.jp/tf/playlist.m3u8");
+
+    let lsid: String = {
+        let mut buf = [0; 32];
+        std::fs::File::open("/dev/random")?.read_exact(&mut buf)?;
+        let hex = [
+            '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f',
+        ];
+        buf.into_iter().map(|v| hex[v as usize / 16]).collect()
+    };
+
+    const FIXED_SEEK: i64 = 300;
+
     for program in programs.iter() {
         for (prefix, times) in program.iter() {
-            let mut file_names = vec![];
-            for (i, (ft, to)) in times.iter().enumerate() {
-                let req = req.clone();
-                let token = token.clone();
-                let data = download(req, pref, token, ft.to_string(), to.to_string()).await?;
-                let file_name = format!("/home/{}/Downloads/{prefix}_{}_{i}.aac", &user, &yyyymmdd);
-                file_names.push(file_name.clone());
-                fs::write(file_name, data).await?;
-            }
+            let mut links = vec![];
+            for (from, to) in times {
+                let from: Time = from.as_str().try_into()?;
+                let to: Time = to.as_str().try_into()?;
 
-            let list_name = format!("/home/{}/Downloads/{prefix}_{}_list.txt", &user, &yyyymmdd);
+                let mut seek = from.clone();
+                //println!("{from}, {to}");
+
+                while seek < to {
+                    let url = format!(
+                        "{}?lsid={}&station_id=ABC&l={FIXED_SEEK}&start_at={}&end_at={}&type=b&ft={2}&to={3}&seek={}",
+                        &playlist_url, &lsid, &from, &to, &seek
+                    );
+
+                    let res = req
+                        .get(&url)
+                        .header("X-Radiko-AreaId", pref.as_id())
+                        .header("X-Radiko-AuthToken", &token)
+                        .send()
+                        .await?;
+                    let res = res.text().await?;
+                    let url = res
+                        .lines()
+                        .find(|s| !s.starts_with("#") && !s.trim().is_empty())
+                        .context("no url")?;
+
+                    let res = req.get(url).send().await?;
+                    let res = res.text().await?;
+                    let part_links: Vec<_> = res
+                        .lines()
+                        .filter(|s| !s.starts_with("#") && !s.trim().is_empty())
+                        .map(|s| s.to_owned())
+                        .collect();
+                    // dbg!(url);
+
+                    links.push(part_links);
+
+                    seek = seek.add_sec(FIXED_SEEK)?;
+                }
+            }
+            let mut buf: Vec<u8> = vec![];
+            for url in links.iter().flatten() {
+                dbg!(url);
+                let data = req.get(url).send().await?.bytes().await?;
+                let (offset, _) = parse_aac(&data);
+                buf.write_all(data.get(offset as usize..).context("no data")?)?;
+            }
             fs::write(
-                &list_name,
-                &file_names
-                    .iter()
-                    .try_fold(vec![], |mut acc, n| -> Result<_> {
-                        writeln!(&mut acc, "file {n}")?;
-                        Ok(acc)
-                    })?,
+                format!("/home/{}/Downloads/{}_{}.aac", &user, prefix, &yyyymmdd),
+                &buf,
             )
             .await?;
-
-            Command::new("ffmpeg")
-                .arg("-hide_banner")
-                .arg("-loglevel")
-                .arg("error")
-                .arg("-safe")
-                .arg("0")
-                .arg("-f")
-                .arg("concat")
-                .arg("-i")
-                .arg(&list_name)
-                .arg("-c:a")
-                .arg("copy")
-                .arg(format!(
-                    "/home/{}/Downloads/{prefix}_{}.aac",
-                    &user, &yyyymmdd
-                ))
-                .spawn()?
-                .wait()
-                .await?;
-
-            fs::remove_file(&list_name).await?;
-            for file_name in file_names {
-                fs::remove_file(file_name).await?;
-            }
         }
     }
     Ok(())

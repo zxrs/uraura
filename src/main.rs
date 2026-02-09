@@ -4,11 +4,11 @@ use chrono::{DateTime, Local, TimeDelta, TimeZone};
 use rand::prelude::*;
 use std::{
     collections::HashMap,
-    env, fmt,
+    env, fmt, fs,
     io::{Read, Write},
+    process::Command,
     sync::Arc,
 };
-use tokio::{fs, process::Command};
 
 mod consts;
 mod xml;
@@ -33,9 +33,11 @@ const DOWNLOAD_PROGRAMS: &[(&str, &str)] = &[
     ("Ｒ→９３３", "R933"),
 ];
 
-async fn token() -> Result<(Pref, String)> {
+fn token() -> Result<(Pref, String)> {
     let info = random_info();
-    let auth1 = reqwest::ClientBuilder::new().cookie_store(true).build()?;
+    let auth1 = reqwest::blocking::ClientBuilder::new()
+        .cookie_store(true)
+        .build()?;
     let useragent = info.useragent.to_string();
     let res = auth1
         .get("https://radiko.jp/v2/api/auth1")
@@ -44,8 +46,7 @@ async fn token() -> Result<(Pref, String)> {
         .header("X-Radiko-App-Version", "7.5.0")
         .header("X-Radiko-Device", info.device.as_str())
         .header("X-Radiko-User", info.userid.as_str())
-        .send()
-        .await?;
+        .send()?;
 
     let headers = res.headers();
 
@@ -69,7 +70,9 @@ async fn token() -> Result<(Pref, String)> {
     let partial = general_purpose::STANDARD.encode(decoded);
 
     let (pref, coodinate) = gps();
-    let auth2 = reqwest::ClientBuilder::new().cookie_store(true).build()?;
+    let auth2 = reqwest::blocking::ClientBuilder::new()
+        .cookie_store(true)
+        .build()?;
     let _res = auth2
         .get("https://radiko.jp/v2/api/auth2")
         .header("User-Agent", useragent)
@@ -81,8 +84,7 @@ async fn token() -> Result<(Pref, String)> {
         .header("X-Radiko-Location", coodinate.to_string())
         .header("X-Radiko-Connection", "wifi")
         .header("X-Radiko-Partialkey", partial)
-        .send()
-        .await?;
+        .send()?;
     Ok((pref, token.into()))
 }
 
@@ -175,7 +177,7 @@ fn parse_aac(data: &[u8]) -> (u32, u32) {
     (id3_tag_size, timestamp)
 }
 
-async fn yyyymmdd() -> Result<String> {
+fn yyyymmdd() -> Result<String> {
     if let Some(v) = env::args().nth(1) {
         ensure!(
             v.len() == 8 && v.chars().all(|c| c.is_ascii_digit()),
@@ -183,14 +185,14 @@ async fn yyyymmdd() -> Result<String> {
         );
         return Ok(v);
     }
-    let result = String::from_utf8(Command::new("date").arg("+%Y%m%d").output().await?.stdout)?;
+    let result = String::from_utf8(Command::new("date").arg("+%Y%m%d").output()?.stdout)?;
     let result = result.trim();
     ensure!(!result.is_empty(), "no yyyymmdd.");
     Ok(result.into())
 }
 
-async fn user() -> Result<String> {
-    let user = Command::new("whoami").output().await?.stdout;
+fn user() -> Result<String> {
+    let user = Command::new("whoami").output()?.stdout;
     Ok(String::from_utf8(user)?.split_whitespace().collect())
 }
 
@@ -234,10 +236,9 @@ impl TryFrom<&str> for Time {
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    let yyyymmdd = yyyymmdd().await?;
-    let user = user().await?;
+fn main() -> Result<()> {
+    let yyyymmdd = yyyymmdd()?;
+    let user = user()?;
     let download_programs: Vec<_> = DOWNLOAD_PROGRAMS
         .iter()
         .filter(|(_, prefix)| {
@@ -249,8 +250,10 @@ async fn main() -> Result<()> {
         })
         .collect();
 
-    let (pref, token) = token().await?;
-    let req = reqwest::ClientBuilder::new().cookie_store(true).build()?;
+    let (pref, token) = token()?;
+    let req = reqwest::blocking::ClientBuilder::new()
+        .cookie_store(true)
+        .build()?;
     let req = Arc::new(req);
 
     let res = req
@@ -260,9 +263,8 @@ async fn main() -> Result<()> {
         ))
         .header("X-Radiko-AreaId", pref.as_id())
         .header("X-Radiko-AuthToken", &token)
-        .send()
-        .await?;
-    let xml = res.text().await?;
+        .send()?;
+    let xml = res.text()?;
     let radiko: Radiko = serde_xml_rs::from_str(&xml)?;
     //dbg!(radiko);
 
@@ -303,9 +305,8 @@ async fn main() -> Result<()> {
 
     let res = req
         .get("https://radiko.jp/v3/station/stream/pc_html5/ABC.xml")
-        .send()
-        .await?;
-    let xml = res.text().await?;
+        .send()?;
+    let xml = res.text()?;
     let urls: Urls = serde_xml_rs::from_str(&xml)?;
     let playlist_url = urls
         .value
@@ -347,16 +348,15 @@ async fn main() -> Result<()> {
                         .get(&url)
                         .header("X-Radiko-AreaId", pref.as_id())
                         .header("X-Radiko-AuthToken", &token)
-                        .send()
-                        .await?;
-                    let res = res.text().await?;
+                        .send()?;
+                    let res = res.text()?;
                     let url = res
                         .lines()
                         .find(|s| !s.starts_with("#") && !s.trim().is_empty())
                         .context("no url")?;
 
-                    let res = req.get(url).send().await?;
-                    let res = res.text().await?;
+                    let res = req.get(url).send()?;
+                    let res = res.text()?;
                     let part_links: Vec<_> = res
                         .lines()
                         .filter(|s| !s.starts_with("#") && !s.trim().is_empty())
@@ -372,15 +372,14 @@ async fn main() -> Result<()> {
             let mut buf: Vec<u8> = vec![];
             for url in links.iter().flatten() {
                 dbg!(url);
-                let data = req.get(url).send().await?.bytes().await?;
+                let data = req.get(url).send()?.bytes()?;
                 let (offset, _) = parse_aac(&data);
                 buf.write_all(data.get(offset as usize..).context("no data")?)?;
             }
             fs::write(
                 format!("/home/{}/Downloads/{}_{}.aac", &user, prefix, &yyyymmdd),
                 &buf,
-            )
-            .await?;
+            )?;
         }
     }
     Ok(())

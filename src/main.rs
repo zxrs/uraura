@@ -7,7 +7,6 @@ use std::{
     env, fmt, fs,
     io::{Read, Write},
     process::Command,
-    sync::Arc,
 };
 
 mod consts;
@@ -22,7 +21,7 @@ const DOWNLOAD_PROGRAMS: &[(&str, &str)] = &[
     // FRI 12:00~
     ("兵動大樹のほわ～っとエエ感じ。", "HYODO"),
     // SAT 9:30~
-    ("Ｓｕｎｓｔａｒ　ｐｒｅｓｅｎｔｓ　浦川泰幸の健", "KENKO"),
+    // ("Ｓｕｎｓｔａｒ　ｐｒｅｓｅｎｔｓ　浦川泰幸の健", "KENKO"),
     // SAT 10:00~
     ("征平・吉弥の土曜も全開！！", "ZENKAI"),
     // SUN 8:30~
@@ -254,7 +253,6 @@ fn main() -> Result<()> {
     let req = reqwest::blocking::ClientBuilder::new()
         .cookie_store(true)
         .build()?;
-    let req = Arc::new(req);
 
     let res = req
         .get(format!(

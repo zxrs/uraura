@@ -6,17 +6,18 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0"
-base64 = "0.22"
-rand = "0.9"
+anyhow = "=1.0.102"
+base64 = "=0.22.1"
+rand = "=0.10.1"
 # tokio = { version = "1.44", features = ["full"] }
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "=1.0.228", features = ["derive"] }
 serde-xml-rs = "~0.6"
-chrono = "0.4.43"
+chrono = "=0.4.44"
 
 [dependencies.reqwest]
-version = "0.12"
-features = ["blocking", "cookies"]
+version = "=0.13.2"
+default-features = false
+features = ["native-tls", "blocking", "cookies"]
  
 [profile.dev]
 debug = 0

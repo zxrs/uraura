@@ -264,25 +264,28 @@ fn main() -> Result<()> {
         .send()?;
     let xml = res.text()?;
     let radiko: Radiko = serde_xml_rs::from_str(&xml)?;
-    //dbg!(radiko);
+    // dbg!(&radiko);
+
+    // return Ok(());
 
     let programs: Vec<Vec<_>> = radiko
         .stations
-        .value
+        .stations
         .iter()
         .filter(|s| s.id.eq("ABC"))
-        .map(|s| &s.progs.value)
+        .map(|s| &s.progs)
+        .filter_map(|p| Some(p.first()?.prog.as_slice()))
         .map(|programs| {
             download_programs
                 .iter()
                 .filter_map(|d| {
-                    if programs.iter().any(|p| p.title.value.starts_with(d.0)) {
+                    if programs.iter().any(|p| p.title.starts_with(d.0)) {
                         return Some((
                             d.1,
                             programs
                                 .iter()
                                 .filter_map(|p| {
-                                    if p.title.value.starts_with(d.0) {
+                                    if p.title.starts_with(d.0) {
                                         return Some((p.ft.clone(), p.to.clone()));
                                     }
                                     None
@@ -305,9 +308,10 @@ fn main() -> Result<()> {
         .get("https://radiko.jp/v3/station/stream/pc_html5/ABC.xml")
         .send()?;
     let xml = res.text()?;
+    // dbg!(&xml);
     let urls: Urls = serde_xml_rs::from_str(&xml)?;
     let playlist_url = urls
-        .value
+        .url
         .iter()
         .filter(|url| url.areafree.eq("0") && url.timefree.eq("1"))
         .map(|url| url.playlist_create_url.as_str())

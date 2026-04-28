@@ -2,83 +2,54 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, PartialEq)]
 pub struct Radiko {
-    pub ttl: Ttl,
-    pub srvtime: SrvTime,
     pub stations: Stations,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
-pub struct Ttl {
-    #[serde(rename = "$value")]
-    pub value: String,
-}
-
-#[derive(Debug, Deserialize, PartialEq)]
-pub struct SrvTime {
-    #[serde(rename = "$value")]
-    pub value: String,
-}
-
-#[derive(Debug, Deserialize, PartialEq)]
 pub struct Stations {
-    #[serde(rename = "$value")]
-    pub value: Vec<Station>,
+    #[serde(rename = "station")]
+    pub stations: Vec<Station>,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
 pub struct Station {
+    #[serde(rename = "@id")]
     pub id: String,
-    pub name: Name,
-    pub progs: Progs,
+    pub name: String,
+    pub progs: Vec<Programs>,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
-pub struct Name {
-    #[serde(rename = "$value")]
-    pub value: String,
-}
+pub struct Date(String);
 
 #[derive(Debug, Deserialize, PartialEq)]
-pub struct Date {
-    #[serde(rename = "$value")]
-    pub value: String,
-}
-
-#[derive(Debug, Deserialize, PartialEq)]
-pub struct Progs {
+pub struct Programs {
     pub date: Date,
-    #[serde(rename = "prog")]
-    pub value: Vec<Prog_>,
+    pub prog: Vec<Prog>,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
-pub struct Prog_ {
+pub struct Prog {
+    #[serde(rename = "@id")]
     pub id: String,
-    pub master_id: String,
+    #[serde(rename = "@ft")]
     pub ft: String,
+    #[serde(rename = "@to")]
     pub to: String,
-    pub ftl: String,
-    pub tol: String,
-    pub dur: String,
-    pub title: Title,
-}
-
-#[derive(Debug, Deserialize, PartialEq)]
-pub struct Title {
-    #[serde(rename = "$value")]
-    pub value: String,
+    pub title: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Urls {
-    #[serde(rename = "$value")]
-    pub value: Vec<Url>,
+    #[serde(rename = "url")]
+    pub url: Vec<Url>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Url {
+    #[serde(rename = "@areafree")]
     pub areafree: String,
-    pub max_delay: String,
+    #[serde(rename = "@timefree")]
     pub timefree: String,
     pub playlist_create_url: String,
 }

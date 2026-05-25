@@ -3,27 +3,24 @@ name = "uraura"
 version = "0.1.0"
 edition = "2024"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 anyhow = "=1.0.102"
 base64 = "=0.22.1"
 rand = "=0.10.1"
-# tokio = { version = "1.44", features = ["full"] }
 serde = { version = "=1.0.228", features = ["derive"] }
 serde-xml-rs = "=0.8.2"
 chrono = "=0.4.44"
 
 [dependencies.reqwest]
-version = "=0.13.2"
+version = "=0.13.3"
 default-features = false
 features = ["native-tls", "blocking", "cookies"]
  
 [profile.dev]
-# debug = 0
+debug = 0
 
 [profile.dev.package."*"]
-# debug = 0
+debug = 0
 
 [profile.release]
 panic = "abort"
